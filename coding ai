@@ -46,3 +46,83 @@ from nltk import pos_tag, word_tokenize
 
 lemmatizer = WordNetLemmatizer()
 stopwords = set(stopwords.words('english'))
+
+def text_process(mess):
+    # converting messages to lowercase
+    mess = mess.lower()
+
+    # uses a lemmatizer (wnpos is the parts of speech tag)
+    # unfortunately wordnet and nltk uses a different set of terminology 
+    # for pos tags
+    # first, we must translate the nltk pos to wordnet
+    nltk_pos = [tag[1] for tag in pos_tag(word_tokenize(mess))]
+    mess = [tag[0] for tag in pos_tag(word_tokenize(mess))]
+    wnpos = ['a' if tag[0] == 'J' else tag[0].lower() if tag[0] 
+             in ['N', 'R', 'V'] else 'n' for tag in nltk_pos]
+    mess = " ".join([lemmatizer.lemmatize(word, wnpos[i]) for i, word 
+                     in enumerate(mess)])
+
+    # removing stopwords 
+    mess = [word for word in mess.split() if word not in stopwords]
+
+    return mess
+    
+message.head()
+message['message'].head(5).apply(text_process)
+message.head()
+
+from sklearn.feature_extraction.text import CountVectorizer
+bow_transformer = CountVectorizer(analyzer=text_process).fit(message['message'])
+print(len(bow_transformer.vocabulary_))
+
+message4=message['message'][3]
+print(message4)
+
+bow4=bow_transformer.transform([message4])
+print(bow4)
+print(bow4.shape)
+print(bow_transformer.get_feature_names()[4073])
+print(bow_transformer.get_feature_names()[9570])
+
+messages_bow = bow_transformer.transform(message['message'])
+print('Shape of Sparse Matrix: ',messages_bow.shape)
+print('Amount of non-zero occurences:',messages_bow.nnz)
+
+sparsity =(100.0 * messages_bow.nnz/(messages_bow.shape[0]*messages_bow.shape[1]))
+print('sparsity:{}'.format(round(sparsity)))
+
+from sklearn.feature_extraction.text import TfidfTransformer
+tfidf_transformer=TfidfTransformer().fit(messages_bow)
+tfidf4 = tfidf_transformer.transform(bow4)
+print(tfidf4)
+print(tfidf_transformer.idf_[bow_transformer.vocabulary_['u']])
+print(tfidf_transformer.idf_[bow_transformer.vocabulary_['university']])
+
+messages_tfidf=tfidf_transformer.transform(messages_bow)
+print(messages_tfidf.shape)
+
+from sklearn.naive_bayes import MultinomialNB
+spam_detect_model = MultinomialNB().fit(messages_tfidf,message['labels'])
+print('predicted:',spam_detect_model.predict(tfidf4)[0])
+print('expected:',message.labels[24])
+all_predictions = spam_detect_model.predict(messages_tfidf)
+print(all_predictions[:10])
+
+from sklearn.metrics import classification_report,confusion_matrix
+#print(classification_report(message['labels'],all_predictions))
+print(confusion_matrix(message['labels'],all_predictions))
+
+from sklearn.model_selection import train_test_split
+msg_train,msg_test,label_train,label_test = train_test_split(message['message'],message['labels'],test_size=0.2)
+print(len(msg_train),len(msg_test),len(label_train),len(label_test))
+
+from sklearn.pipeline import Pipeline
+pipeline = Pipeline([
+   ( 'bow',CountVectorizer(analyzer=text_process)),
+    ('tfidf',TfidfTransformer()),
+    ('classifier',MultinomialNB()),
+])
+pipeline.fit(msg_train,label_train)
+predictions = pipeline.predict(msg_test)
+print(classification_report(predictions,label_test))
+
